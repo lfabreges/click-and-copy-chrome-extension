@@ -29,6 +29,11 @@ function getEffectiveData(storageData) {
   };
 }
 
+// Returns the correct data object for a given tab (effective for incognito, raw for normal)
+function getTabData(storageData, tab) {
+  return tab?.incognito ? getEffectiveData(storageData) : storageData;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function stripUrl(url) {
@@ -155,16 +160,18 @@ function notifyTab(tabId, url, data) {
   chrome.tabs.sendMessage(tabId, { type: 'click-and-copy-state', enabled }).catch(() => {});
 }
 
-async function notifyAllIncognitoTabs(effData) {
-  const tabs = await chrome.tabs.query({ incognito: true });
-  for (const tab of tabs) notifyTab(tab.id, tab.url, effData);
+async function notifyTabs(data, { incognito } = {}) {
+  const tabs = await chrome.tabs.query({});
+  for (const tab of tabs) {
+    if (incognito !== undefined && tab.incognito !== incognito) continue;
+    notifyTab(tab.id, tab.url, data);
+  }
 }
 
 async function notifyIncognitoTabsForHost(effData, hostname, excludeTabId) {
-  const tabs = await chrome.tabs.query({ incognito: true });
+  const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
-    if (tab.id === excludeTabId) continue;
-    if (!tab.url?.startsWith('http')) continue;
+    if (!tab.incognito || tab.id === excludeTabId || !tab.url?.startsWith('http')) continue;
     try {
       if (new URL(tab.url).hostname === hostname) {
         applyBadge(tab.id, tab.url, effData);
@@ -174,9 +181,14 @@ async function notifyIncognitoTabsForHost(effData, hostname, excludeTabId) {
   }
 }
 
-async function notifyAllNonIncognitoTabs(storageData) {
-  const tabs = await chrome.tabs.query({ incognito: false });
-  for (const tab of tabs) notifyTab(tab.id, tab.url, storageData);
+// Apply incognito toggle result: update badge, notify current + sibling tabs, refresh menus.
+// Must be async and awaited — unawaited promises in MV3 service workers can be dropped.
+async function applyIncognitoChange(storageData, tab, parsed) {
+  const effData = getEffectiveData(storageData);
+  applyBadge(parsed.tabId, parsed.url, effData);
+  notifyTab(parsed.tabId, parsed.url, effData);
+  await notifyIncognitoTabsForHost(effData, parsed.hostname, parsed.tabId);
+  await refreshMenus(storageData, tab);
 }
 
 // ── Badge (per-tab) ──────────────────────────────────────────────────────────
@@ -202,8 +214,7 @@ async function updateAllBadges(storageData) {
   const effData = getEffectiveData(storageData);
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
-    const data = tab.incognito ? effData : storageData;
-    applyBadge(tab.id, tab.url, data);
+    applyBadge(tab.id, tab.url, tab.incognito ? effData : storageData);
   }
 }
 
@@ -236,8 +247,7 @@ async function refreshMenus(storageData, activeTab) {
     [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   }
 
-  // Use effective data (with incognito overrides) when the active tab is incognito
-  const data = activeTab?.incognito ? getEffectiveData(storageData) : storageData;
+  const data = getTabData(storageData, activeTab);
 
   chrome.contextMenus.update('toggle-global', {
     title: data.global ? msg('menuDisableAllSites') : msg('menuEnableAllSites'),
@@ -292,11 +302,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 
   if (tab.incognito) {
     smartToggleIncognito(storageData, parsed.hostname, parsed.clean);
-    const effData = getEffectiveData(storageData);
-    applyBadge(parsed.tabId, parsed.url, effData);
-    notifyTab(parsed.tabId, parsed.url, effData);
-    notifyIncognitoTabsForHost(effData, parsed.hostname, parsed.tabId);
-    refreshMenus(storageData, tab);
+    await applyIncognitoChange(storageData, tab, parsed);
     return;
   }
 
@@ -317,9 +323,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     if (tab?.incognito) {
       incognitoData.global = !(incognitoData.global ?? storageData.global);
       const effData = getEffectiveData(storageData);
-      updateAllBadges(storageData);
-      refreshMenus(storageData, tab);
-      notifyAllIncognitoTabs(effData);
+      await updateAllBadges(storageData);
+      await refreshMenus(storageData, tab);
+      await notifyTabs(effData, { incognito: true });
     } else {
       await chrome.storage.local.set({ global: !storageData.global });
     }
@@ -340,11 +346,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       delete incognitoData.sites[hostname];
       deletePagesForHost(incognitoData.pages, hostname);
     }
-    const effData = getEffectiveData(storageData);
-    applyBadge(parsed.tabId, parsed.url, effData);
-    notifyTab(parsed.tabId, parsed.url, effData);
-    notifyIncognitoTabsForHost(effData, hostname, parsed.tabId);
-    refreshMenus(storageData, tab);
+    await applyIncognitoChange(storageData, tab, parsed);
     return;
   }
 
@@ -367,8 +369,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.url || changeInfo.status === 'complete') {
     const storageData = await getData();
-    const data = tab.incognito ? getEffectiveData(storageData) : storageData;
-    applyBadge(tabId, tab.url, data);
+    applyBadge(tabId, tab.url, getTabData(storageData, tab));
     if (tab.active) refreshMenus(storageData, tab);
   }
 });
@@ -385,7 +386,7 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   if ('global' in changes || 'sites' in changes || 'pages' in changes) {
     const storageData = await getData();
     refreshAll(storageData);
-    notifyAllNonIncognitoTabs(storageData);
+    notifyTabs(storageData, { incognito: false });
   }
 });
 
@@ -398,7 +399,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     getData().then(storageData => {
-      const data = tab.incognito ? getEffectiveData(storageData) : storageData;
+      const data = getTabData(storageData, tab);
       const { hostname } = new URL(tab.url);
       const enabled = resolveState(data.global, data.sites, data.pages, hostname, tab.url);
       sendResponse({ enabled });
