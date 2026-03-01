@@ -13,12 +13,21 @@
  * Incognito: rules apply in-session but are NEVER written to storage.
  *   incognitoData holds in-memory overrides for all incognito tabs.
  *   It is lost when the service worker restarts (browser exit, extension reload).
+ *
+ * Permission model: uses activeTab instead of tabs.  State is resolved
+ *   on-demand when the content script sends its URL via get-state.
+ *   Other tabs update lazily when activated.
  */
 
-// ── In-memory state for incognito (never persisted) ──────────────────────────
+// ── In-memory state (never persisted) ────────────────────────────────────────
 
 const incognitoData = { global: null, sites: {}, pages: {} };
 // global: null means "inherit from storage"
+
+// Tab cache: tabId → { url, incognito } – populated by get-state and user interactions.
+// Used to update badges on all known tabs without the tabs permission,
+// and to let refreshMenus resolve state for the active tab.
+const tabCache = new Map();
 
 // Merges storage data with incognito in-memory overrides
 function getEffectiveData(storageData) {
@@ -30,8 +39,8 @@ function getEffectiveData(storageData) {
 }
 
 // Returns the correct data object for a given tab (effective for incognito, raw for normal)
-function getTabData(storageData, tab) {
-  return tab?.incognito ? getEffectiveData(storageData) : storageData;
+function getTabData(storageData, incognito) {
+  return incognito ? getEffectiveData(storageData) : storageData;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -151,43 +160,33 @@ async function getData() {
   return { global, sites, pages };
 }
 
-// ── Tab notification ──────────────────────────────────────────────────────────
+// ── Notify active tab ────────────────────────────────────────────────────────
 
-function notifyTab(tabId, url, data) {
+// Update badges for all known tabs from cache (prevents flicker on tab switch)
+function updateAllBadges(storageData, effData) {
+  if (!effData) effData = getEffectiveData(storageData);
+  for (const [tabId, { url, incognito }] of tabCache) {
+    applyBadge(tabId, url, incognito ? effData : storageData);
+  }
+}
+
+function sendState(tabId, url, data) {
   if (!url?.startsWith('http')) return;
   const { hostname } = new URL(url);
   const enabled = resolveState(data.global, data.sites, data.pages, hostname, url);
   chrome.tabs.sendMessage(tabId, { type: 'click-and-copy-state', enabled }).catch(() => {});
 }
 
-async function notifyTabs(data, { incognito } = {}) {
-  const tabs = await chrome.tabs.query({});
-  for (const tab of tabs) {
-    if (incognito !== undefined && tab.incognito !== incognito) continue;
-    notifyTab(tab.id, tab.url, data);
-  }
+function sendRefresh(tabId) {
+  chrome.tabs.sendMessage(tabId, { type: 'click-and-copy-refresh' }).catch(() => {});
 }
 
-async function notifyIncognitoTabsForHost(effData, hostname, excludeTabId) {
-  const tabs = await chrome.tabs.query({});
-  for (const tab of tabs) {
-    if (!tab.incognito || tab.id === excludeTabId || !tab.url?.startsWith('http')) continue;
-    try {
-      if (new URL(tab.url).hostname === hostname) {
-        applyBadge(tab.id, tab.url, effData);
-        notifyTab(tab.id, tab.url, effData);
-      }
-    } catch {}
-  }
-}
-
-// Apply incognito toggle result: update badge, notify current + sibling tabs, refresh menus.
-// Must be async and awaited — unawaited promises in MV3 service workers can be dropped.
-async function applyIncognitoChange(storageData, tab, parsed) {
+// Post-toggle epilogue for incognito: compute effective data once, update all badges,
+// notify the active tab, and refresh menus.
+async function applyIncognitoChange(storageData, tab, tabId, url) {
   const effData = getEffectiveData(storageData);
-  applyBadge(parsed.tabId, parsed.url, effData);
-  notifyTab(parsed.tabId, parsed.url, effData);
-  await notifyIncognitoTabsForHost(effData, parsed.hostname, parsed.tabId);
+  updateAllBadges(storageData, effData);
+  if (url) sendState(tabId, url, effData);
   await refreshMenus(storageData, tab);
 }
 
@@ -206,15 +205,6 @@ function applyBadge(tabId, url, data) {
     chrome.action.setBadgeBackgroundColor({ color: '#22c55e', tabId });
   } else {
     chrome.action.setBadgeText({ text: '', tabId });
-  }
-}
-
-async function updateAllBadges(storageData) {
-  if (!storageData) storageData = await getData();
-  const effData = getEffectiveData(storageData);
-  const tabs = await chrome.tabs.query({});
-  for (const tab of tabs) {
-    applyBadge(tab.id, tab.url, tab.incognito ? effData : storageData);
   }
 }
 
@@ -241,17 +231,33 @@ async function refreshMenus(storageData, activeTab) {
   if (menusReady) await menusReady;
   if (!storageData) storageData = await getData();
 
-  if (!activeTab) {
-    [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  let parsed = null;
+  let incognito = false;
+
+  if (activeTab?.url) {
+    // Full tab object with URL (from action/context menu click – granted by activeTab)
+    parsed = parseTab(activeTab);
+    incognito = !!activeTab.incognito;
+  } else {
+    // No URL available – look up from cache
+    let tab = activeTab;
+    if (!tab) {
+      [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    }
+    if (tab) {
+      incognito = !!tab.incognito;
+      const cached = tabCache.get(tab.id);
+      if (cached) {
+        parsed = parseTab({ url: cached.url, id: tab.id });
+      }
+    }
   }
 
-  const data = getTabData(storageData, activeTab);
+  const data = getTabData(storageData, incognito);
 
   chrome.contextMenus.update('toggle-global', {
     title: data.global ? msg('menuDisableAllSites') : msg('menuEnableAllSites'),
   });
-
-  const parsed = activeTab ? parseTab(activeTab) : null;
 
   if (!parsed) {
     chrome.contextMenus.update('toggle-site', { title: msg('menuEnableForSite'), enabled: false });
@@ -281,12 +287,6 @@ async function refreshMenus(storageData, activeTab) {
   });
 }
 
-async function refreshAll(storageData) {
-  if (!storageData) storageData = await getData();
-  updateAllBadges(storageData);
-  refreshMenus(storageData);
-}
-
 // ── Initialisation ───────────────────────────────────────────────────────────
 
 createMenus();
@@ -296,16 +296,18 @@ chrome.action.onClicked.addListener(async (tab) => {
   const parsed = parseTab(tab);
   if (!parsed) return;
 
+  tabCache.set(tab.id, { url: tab.url, incognito: !!tab.incognito });
   const storageData = await getData();
 
   if (tab.incognito) {
     smartToggleIncognito(storageData, parsed.hostname, parsed.clean);
-    await applyIncognitoChange(storageData, tab, parsed);
+    await applyIncognitoChange(storageData, tab, parsed.tabId, parsed.url);
     return;
   }
 
   const toSave = smartToggle(storageData, parsed.hostname, parsed.clean);
   await chrome.storage.local.set(toSave);
+  // Badge + menus updated by storage.onChanged
 });
 
 // Context menu clicks
@@ -315,10 +317,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === 'toggle-global') {
     if (tab?.incognito) {
       incognitoData.global = !(incognitoData.global ?? storageData.global);
-      const effData = getEffectiveData(storageData);
-      await updateAllBadges(storageData);
-      await refreshMenus(storageData, tab);
-      await notifyTabs(effData, { incognito: true });
+      if (tab.url) tabCache.set(tab.id, { url: tab.url, incognito: true });
+      await applyIncognitoChange(storageData, tab, tab.id, tab.url);
     } else {
       await chrome.storage.local.set({ global: !storageData.global });
     }
@@ -328,78 +328,98 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const parsed = parseTab(tab);
   if (!parsed) return;
 
-  const { hostname, clean } = parsed;
+  tabCache.set(tab.id, { url: tab.url, incognito: !!tab.incognito });
 
   if (tab?.incognito) {
     if (info.menuItemId === 'toggle-site') {
-      toggleSiteIncognito(storageData, hostname);
+      toggleSiteIncognito(storageData, parsed.hostname);
     } else if (info.menuItemId === 'toggle-page') {
-      togglePageIncognito(storageData, hostname, clean);
+      togglePageIncognito(storageData, parsed.hostname, parsed.clean);
     } else if (info.menuItemId === 'reset-site') {
-      delete incognitoData.sites[hostname];
-      deletePagesForHost(incognitoData.pages, hostname);
+      delete incognitoData.sites[parsed.hostname];
+      deletePagesForHost(incognitoData.pages, parsed.hostname);
     }
-    await applyIncognitoChange(storageData, tab, parsed);
+    await applyIncognitoChange(storageData, tab, parsed.tabId, parsed.url);
     return;
   }
 
   if (info.menuItemId === 'toggle-site') {
-    toggleSite(storageData, hostname);
+    toggleSite(storageData, parsed.hostname);
     await chrome.storage.local.set({ sites: storageData.sites });
   } else if (info.menuItemId === 'toggle-page') {
-    togglePage(storageData, hostname, clean);
+    togglePage(storageData, parsed.hostname, parsed.clean);
     await chrome.storage.local.set({ pages: storageData.pages });
   } else if (info.menuItemId === 'reset-site') {
-    delete storageData.sites[hostname];
-    deletePagesForHost(storageData.pages, hostname);
+    delete storageData.sites[parsed.hostname];
+    deletePagesForHost(storageData.pages, parsed.hostname);
     await chrome.storage.local.set({
       sites: storageData.sites, pages: storageData.pages,
     });
   }
+  // Badge + menus updated by storage.onChanged
 });
 
-// Tab navigation: update badge + menus
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.url || changeInfo.status === 'complete') {
-    const storageData = await getData();
-    applyBadge(tabId, tab.url, getTabData(storageData, tab));
-    if (tab.active) refreshMenus(storageData, tab);
+// Tab switch: badge is already correct (updated eagerly), just refresh menus + content script
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  sendRefresh(tabId);
+  const cached = tabCache.get(tabId);
+  if (cached) {
+    const tab = await chrome.tabs.get(tabId);
+    refreshMenus(null, { ...tab, url: cached.url });
+  } else {
+    refreshMenus();
   }
 });
 
-// Tab switch: update menus for the new active tab
-chrome.tabs.onActivated.addListener(async ({ tabId }) => {
-  const tab = await chrome.tabs.get(tabId);
-  refreshMenus(null, tab);
+// Page load complete: ensure content script has latest state
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'complete') {
+    sendRefresh(tabId);
+  }
 });
 
-// Any storage change: refresh badges, menus, and notify non-incognito content scripts
+// Tab closed: clean up cache
+chrome.tabs.onRemoved.addListener((tabId) => tabCache.delete(tabId));
+
+// Storage change (from options page or normal toggle): update all badges + refresh active tab
 chrome.storage.onChanged.addListener(async (changes, area) => {
   if (area !== 'local') return;
   if ('global' in changes || 'sites' in changes || 'pages' in changes) {
-    const storageData = await getData();
-    refreshAll(storageData);
-    notifyTabs(storageData, { incognito: false });
+    const [storageData, [activeTab]] = await Promise.all([
+      getData(),
+      chrome.tabs.query({ active: true, currentWindow: true }),
+    ]);
+    updateAllBadges(storageData);
+    refreshMenus(storageData);
+    if (activeTab) sendRefresh(activeTab.id);
   }
 });
 
-// Handle state requests from content scripts (needed for incognito-aware resolution)
+// Handle state requests from content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'get-state') {
     const tab = sender.tab;
-    if (!tab?.url?.startsWith('http')) {
+    const url = message.url;
+    if (!tab || !url?.startsWith('http')) {
       sendResponse({ enabled: false });
       return;
     }
+
+    tabCache.set(tab.id, { url, incognito: !!tab.incognito });
+
     getData().then(storageData => {
-      const data = getTabData(storageData, tab);
-      const { hostname } = new URL(tab.url);
-      const enabled = resolveState(data.global, data.sites, data.pages, hostname, tab.url);
+      const data = getTabData(storageData, tab.incognito);
+      const { hostname } = new URL(url);
+      const enabled = resolveState(data.global, data.sites, data.pages, hostname, url);
+
+      applyBadge(tab.id, url, data);
+      if (tab.active) refreshMenus(storageData, { ...tab, url });
+
       sendResponse({ enabled });
     }).catch(() => sendResponse({ enabled: false }));
     return true; // keep channel open for async response
   }
 });
 
-// Startup: restore state
-refreshAll();
+// Startup: refresh menus (badges set when content scripts send get-state)
+refreshMenus();
