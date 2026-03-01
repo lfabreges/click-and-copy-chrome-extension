@@ -9,7 +9,25 @@
  * Priority: page > site > global
  * Each level is independent – toggling a higher level never clears lower overrides.
  * "Reset site" is the explicit action to clear all overrides for a hostname.
+ *
+ * Incognito: rules apply in-session but are NEVER written to storage.
+ *   incognitoData holds in-memory overrides for all incognito tabs.
+ *   It is lost when the service worker restarts (browser exit, extension reload).
  */
+
+// ── In-memory state for incognito (never persisted) ──────────────────────────
+
+const incognitoData = { global: null, sites: {}, pages: {} };
+// global: null means "inherit from storage"
+
+// Merges storage data with incognito in-memory overrides
+function getEffectiveData(storageData) {
+  return {
+    global: incognitoData.global !== null ? incognitoData.global : storageData.global,
+    sites:  { ...storageData.sites, ...incognitoData.sites },
+    pages:  { ...storageData.pages, ...incognitoData.pages },
+  };
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -40,18 +58,15 @@ function hasPagesForHost(pages, hostname) {
   });
 }
 
-// Toggle the most specific existing rule for this tab.
-// If a page rule exists → toggle page; otherwise → toggle site.
-// After toggling, remove the rule if it becomes redundant with its parent level.
+// ── Toggle logic (normal storage) ────────────────────────────────────────────
+
 function smartToggle(data, hostname, clean) {
   const hasPage = clean in data.pages;
 
   if (hasPage) {
-    // Toggle page rule
     const newPageVal = !data.pages[clean];
     const parentVal = siteState(data, hostname);
     if (newPageVal === parentVal) {
-      // Page rule would match site level → remove it (let site rule apply)
       delete data.pages[clean];
     } else {
       data.pages[clean] = newPageVal;
@@ -59,11 +74,9 @@ function smartToggle(data, hostname, clean) {
     return { sites: data.sites, pages: data.pages };
   }
 
-  // Toggle site rule
   const currentSite = siteState(data, hostname);
   const newSiteVal = !currentSite;
   if (newSiteVal === data.global) {
-    // Site rule would match global → remove it (let global apply)
     delete data.sites[hostname];
   } else {
     data.sites[hostname] = newSiteVal;
@@ -71,7 +84,6 @@ function smartToggle(data, hostname, clean) {
   return { sites: data.sites, pages: data.pages };
 }
 
-// Toggle at a specific level, then clean up if redundant with parent.
 function toggleSite(data, hostname) {
   const newVal = !siteState(data, hostname);
   if (newVal === data.global) {
@@ -92,6 +104,36 @@ function togglePage(data, hostname, clean) {
   }
 }
 
+// ── Toggle logic (incognito – modifies incognitoData, never storage) ──────────
+
+// In incognito, we always write the new value — never delete during a toggle.
+// The "redundancy cleanup" used for normal storage cannot apply here because a
+// storage rule may exist underneath: deleting the incognito override would let
+// the storage rule shine through again, making the toggle a no-op.
+// Cleanup only happens on explicit "reset-site" in incognito.
+
+function smartToggleIncognito(storageData, hostname, clean) {
+  const eff = getEffectiveData(storageData);
+  if (clean in eff.pages) {
+    incognitoData.pages[clean] = !eff.pages[clean];
+  } else {
+    incognitoData.sites[hostname] = !siteState(eff, hostname);
+  }
+}
+
+function toggleSiteIncognito(storageData, hostname) {
+  const eff = getEffectiveData(storageData);
+  incognitoData.sites[hostname] = !siteState(eff, hostname);
+}
+
+function togglePageIncognito(storageData, hostname, clean) {
+  const eff = getEffectiveData(storageData);
+  const currentResolved = resolveState(eff.global, eff.sites, eff.pages, hostname, clean);
+  incognitoData.pages[clean] = !currentResolved;
+}
+
+// ── Misc ─────────────────────────────────────────────────────────────────────
+
 function parseTab(tab) {
   if (!tab?.url || !tab.url.startsWith('http')) return null;
   const u = new URL(tab.url);
@@ -102,6 +144,25 @@ async function getData() {
   const { global = false, sites = {}, pages = {} } =
     await chrome.storage.local.get(['global', 'sites', 'pages']);
   return { global, sites, pages };
+}
+
+// ── Tab notification ──────────────────────────────────────────────────────────
+
+function notifyTab(tabId, url, data) {
+  if (!url?.startsWith('http')) return;
+  const { hostname } = new URL(url);
+  const enabled = resolveState(data.global, data.sites, data.pages, hostname, url);
+  chrome.tabs.sendMessage(tabId, { type: 'click-and-copy-state', enabled }).catch(() => {});
+}
+
+async function notifyAllIncognitoTabs(effData) {
+  const tabs = await chrome.tabs.query({ incognito: true });
+  for (const tab of tabs) notifyTab(tab.id, tab.url, effData);
+}
+
+async function notifyAllNonIncognitoTabs(storageData) {
+  const tabs = await chrome.tabs.query({ incognito: false });
+  for (const tab of tabs) notifyTab(tab.id, tab.url, storageData);
 }
 
 // ── Badge (per-tab) ──────────────────────────────────────────────────────────
@@ -122,17 +183,20 @@ function applyBadge(tabId, url, data) {
   }
 }
 
-async function updateAllBadges(data) {
-  if (!data) data = await getData();
+async function updateAllBadges(storageData) {
+  if (!storageData) storageData = await getData();
+  const effData = getEffectiveData(storageData);
   const tabs = await chrome.tabs.query({});
-  for (const tab of tabs) applyBadge(tab.id, tab.url, data);
+  for (const tab of tabs) {
+    const data = tab.incognito ? effData : storageData;
+    applyBadge(tab.id, tab.url, data);
+  }
 }
 
 // ── Context menus ────────────────────────────────────────────────────────────
 
 const msg = chrome.i18n.getMessage;
 
-// Promise that resolves once menus are created. refreshMenus() awaits it.
 let menusReady;
 
 function createMenus() {
@@ -150,17 +214,21 @@ function createMenus() {
   });
 }
 
-async function refreshMenus(data, activeTab) {
+async function refreshMenus(storageData, activeTab) {
   if (menusReady) await menusReady;
-  if (!data) data = await getData();
+  if (!storageData) storageData = await getData();
+
+  if (!activeTab) {
+    [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  }
+
+  // Use effective data (with incognito overrides) when the active tab is incognito
+  const data = activeTab?.incognito ? getEffectiveData(storageData) : storageData;
 
   chrome.contextMenus.update('toggle-global', {
     title: data.global ? msg('menuDisableAllSites') : msg('menuEnableAllSites'),
   });
 
-  if (!activeTab) {
-    [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  }
   const parsed = activeTab ? parseTab(activeTab) : null;
 
   if (!parsed) {
@@ -191,10 +259,10 @@ async function refreshMenus(data, activeTab) {
   });
 }
 
-async function refreshAll(data) {
-  if (!data) data = await getData();
-  updateAllBadges(data);
-  refreshMenus(data);
+async function refreshAll(storageData) {
+  if (!storageData) storageData = await getData();
+  updateAllBadges(storageData);
+  refreshMenus(storageData);
 }
 
 // ── Initialisation ───────────────────────────────────────────────────────────
@@ -206,8 +274,18 @@ chrome.action.onClicked.addListener(async (tab) => {
   const parsed = parseTab(tab);
   if (!parsed) return;
 
-  const data = await getData();
-  const toSave = smartToggle(data, parsed.hostname, parsed.clean);
+  const storageData = await getData();
+
+  if (tab.incognito) {
+    smartToggleIncognito(storageData, parsed.hostname, parsed.clean);
+    const effData = getEffectiveData(storageData);
+    applyBadge(parsed.tabId, parsed.url, effData);
+    notifyTab(parsed.tabId, parsed.url, effData);
+    refreshMenus(storageData, tab);
+    return;
+  }
+
+  const toSave = smartToggle(storageData, parsed.hostname, parsed.clean);
   await chrome.storage.local.set(toSave);
 });
 
@@ -218,9 +296,19 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     return;
   }
 
+  const storageData = await getData();
+
   if (info.menuItemId === 'toggle-global') {
-    const data = await getData();
-    await chrome.storage.local.set({ global: !data.global });
+    if (tab?.incognito) {
+      const eff = getEffectiveData(storageData);
+      incognitoData.global = !eff.global;
+      const newEff = getEffectiveData(storageData);
+      updateAllBadges(storageData);
+      refreshMenus(storageData, tab);
+      notifyAllIncognitoTabs(newEff);
+    } else {
+      await chrome.storage.local.set({ global: !storageData.global });
+    }
     return;
   }
 
@@ -228,19 +316,34 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!parsed) return;
 
   const { hostname, clean } = parsed;
-  const data = await getData();
+
+  if (tab?.incognito) {
+    if (info.menuItemId === 'toggle-site') {
+      toggleSiteIncognito(storageData, hostname);
+    } else if (info.menuItemId === 'toggle-page') {
+      togglePageIncognito(storageData, hostname, clean);
+    } else if (info.menuItemId === 'reset-site') {
+      delete incognitoData.sites[hostname];
+      deletePagesForHost(incognitoData.pages, hostname);
+    }
+    const effData = getEffectiveData(storageData);
+    applyBadge(parsed.tabId, parsed.url, effData);
+    notifyTab(parsed.tabId, parsed.url, effData);
+    refreshMenus(storageData, tab);
+    return;
+  }
 
   if (info.menuItemId === 'toggle-site') {
-    toggleSite(data, hostname);
-    await chrome.storage.local.set({ sites: data.sites });
+    toggleSite(storageData, hostname);
+    await chrome.storage.local.set({ sites: storageData.sites });
   } else if (info.menuItemId === 'toggle-page') {
-    togglePage(data, hostname, clean);
-    await chrome.storage.local.set({ pages: data.pages });
+    togglePage(storageData, hostname, clean);
+    await chrome.storage.local.set({ pages: storageData.pages });
   } else if (info.menuItemId === 'reset-site') {
-    delete data.sites[hostname];
-    deletePagesForHost(data.pages, hostname);
+    delete storageData.sites[hostname];
+    deletePagesForHost(storageData.pages, hostname);
     await chrome.storage.local.set({
-      sites: data.sites, pages: data.pages,
+      sites: storageData.sites, pages: storageData.pages,
     });
   }
 });
@@ -248,9 +351,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 // Tab navigation: update badge + menus
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.url || changeInfo.status === 'complete') {
-    const data = await getData();
+    const storageData = await getData();
+    const data = tab.incognito ? getEffectiveData(storageData) : storageData;
     applyBadge(tabId, tab.url, data);
-    if (tab.active) refreshMenus(data, tab);
+    if (tab.active) refreshMenus(storageData, tab);
   }
 });
 
@@ -260,11 +364,31 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   refreshMenus(null, tab);
 });
 
-// Any storage change: refresh all badges + context menu titles
-chrome.storage.onChanged.addListener((changes, area) => {
+// Any storage change: refresh badges, menus, and notify non-incognito content scripts
+chrome.storage.onChanged.addListener(async (changes, area) => {
   if (area !== 'local') return;
   if ('global' in changes || 'sites' in changes || 'pages' in changes) {
-    refreshAll();
+    const storageData = await getData();
+    refreshAll(storageData);
+    notifyAllNonIncognitoTabs(storageData);
+  }
+});
+
+// Handle state requests from content scripts (needed for incognito-aware resolution)
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'get-state') {
+    const tab = sender.tab;
+    if (!tab?.url?.startsWith('http')) {
+      sendResponse({ enabled: false });
+      return;
+    }
+    getData().then(storageData => {
+      const data = tab.incognito ? getEffectiveData(storageData) : storageData;
+      const { hostname } = new URL(tab.url);
+      const enabled = resolveState(data.global, data.sites, data.pages, hostname, tab.url);
+      sendResponse({ enabled });
+    });
+    return true; // keep channel open for async response
   }
 });
 
