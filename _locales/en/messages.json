@@ -8,9 +8,6 @@
   "optionsTitle": {
     "message": "Click & Copy – Options"
   },
-  "subtitle": {
-    "message": "Restores right-click, text selection, and copy/paste."
-  },
   "enableForAllSites": {
     "message": "Enable for all sites"
   },
@@ -25,12 +22,6 @@
   },
   "noExceptions": {
     "message": "No exceptions configured"
-  },
-  "detectedSites": {
-    "message": "Sites with detected blocking"
-  },
-  "noDetectedSites": {
-    "message": "No sites detected yet"
   },
   "badgeSite": {
     "message": "Site"

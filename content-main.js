@@ -13,17 +13,6 @@
   const CSS_TEXT = '*, *::before, *::after { -webkit-user-select: text !important; user-select: text !important; }';
 
   let enabled = false;
-  let detected = false;
-  let detectTimer = null;
-
-  function reportDetection() {
-    if (detected) return;
-    clearTimeout(detectTimer);
-    detectTimer = setTimeout(() => {
-      detected = true;
-      window.dispatchEvent(new CustomEvent('__clickAndCopyDetected__'));
-    }, 300);
-  }
 
   // ── Layer 1: neutralise preventDefault() for blocked events ──────────────
   // Handles explicit e.preventDefault() calls and onX handlers returning false
@@ -32,7 +21,6 @@
   Event.prototype.preventDefault = function () {
     if (BLOCKED.has(this.type)) {
       if (enabled) return;
-      reportDetection();
     }
     origPreventDefault.call(this);
   };

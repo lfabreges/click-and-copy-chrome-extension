@@ -5,7 +5,6 @@
  *
  * Reads the 3-level state (global > site > page) from storage and relays
  * the resolved enabled/disabled state to the MAIN world content script.
- * Also forwards detection reports from MAIN world to the background SW.
  */
 
 function resolveState(global, sites, pages, hostname, url) {
@@ -37,10 +36,3 @@ chrome.storage.onChanged.addListener((changes, area) => {
     chrome.storage.local.get(['global', 'sites', 'pages']).then(data => dispatch(resolve(data)));
   }
 });
-
-// Forward detection reports from MAIN world to background (top frame only)
-if (window === window.top) {
-  window.addEventListener('__clickAndCopyDetected__', () => {
-    chrome.runtime.sendMessage({ type: 'detected', hostname });
-  });
-}

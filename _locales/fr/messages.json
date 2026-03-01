@@ -8,9 +8,6 @@
   "optionsTitle": {
     "message": "Click & Copy – Options"
   },
-  "subtitle": {
-    "message": "Restaure le clic droit, la sélection de texte et le copier-coller."
-  },
   "enableForAllSites": {
     "message": "Activer pour tous les sites"
   },
@@ -25,12 +22,6 @@
   },
   "noExceptions": {
     "message": "Aucune exception configurée"
-  },
-  "detectedSites": {
-    "message": "Sites avec blocage détecté"
-  },
-  "noDetectedSites": {
-    "message": "Aucun site détecté pour le moment"
   },
   "badgeSite": {
     "message": "Site"

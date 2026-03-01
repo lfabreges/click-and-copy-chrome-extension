@@ -5,7 +5,6 @@
  *   global:   boolean            – default state for all sites (false = off)
  *   sites:    { hostname: bool } – per-hostname overrides
  *   pages:    { cleanUrl: bool } – per-page overrides (URL without query/hash)
- *   detected: { hostname: bool } – sites where event blocking was detected
  *
  * Priority: page > site > global
  * Each level is independent – toggling a higher level never clears lower overrides.
@@ -100,9 +99,9 @@ function parseTab(tab) {
 }
 
 async function getData() {
-  const { global = false, sites = {}, pages = {}, detected = {} } =
-    await chrome.storage.local.get(['global', 'sites', 'pages', 'detected']);
-  return { global, sites, pages, detected };
+  const { global = false, sites = {}, pages = {} } =
+    await chrome.storage.local.get(['global', 'sites', 'pages']);
+  return { global, sites, pages };
 }
 
 // ── Badge (per-tab) ──────────────────────────────────────────────────────────
@@ -116,11 +115,8 @@ function applyBadge(tabId, url, data) {
   const on = resolveState(data.global, data.sites, data.pages, hostname, url);
 
   if (on) {
-    chrome.action.setBadgeText({ text: 'ON', tabId });
+    chrome.action.setBadgeText({ text: '✓', tabId });
     chrome.action.setBadgeBackgroundColor({ color: '#22c55e', tabId });
-  } else if (data.detected[hostname]) {
-    chrome.action.setBadgeText({ text: '!', tabId });
-    chrome.action.setBadgeBackgroundColor({ color: '#f59e0b', tabId });
   } else {
     chrome.action.setBadgeText({ text: '', tabId });
   }
@@ -243,9 +239,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   } else if (info.menuItemId === 'reset-site') {
     delete data.sites[hostname];
     deletePagesForHost(data.pages, hostname);
-    delete data.detected[hostname];
     await chrome.storage.local.set({
-      sites: data.sites, pages: data.pages, detected: data.detected,
+      sites: data.sites, pages: data.pages,
     });
   }
 });
@@ -265,22 +260,10 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   refreshMenus(null, tab);
 });
 
-// Detection reports from content scripts
-chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (msg.type === 'detected' && msg.hostname && sender.tab) {
-    chrome.storage.local.get('detected').then(({ detected = {} }) => {
-      if (!detected[msg.hostname]) {
-        detected[msg.hostname] = true;
-        chrome.storage.local.set({ detected });
-      }
-    });
-  }
-});
-
 // Any storage change: refresh all badges + context menu titles
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if ('global' in changes || 'sites' in changes || 'pages' in changes || 'detected' in changes) {
+  if ('global' in changes || 'sites' in changes || 'pages' in changes) {
     refreshAll();
   }
 });

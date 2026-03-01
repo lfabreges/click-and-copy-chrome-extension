@@ -15,12 +15,11 @@ document.title = msg('optionsTitle');
 const globalToggle = document.getElementById('global-toggle');
 const globalHint = document.getElementById('global-hint');
 const rulesList = document.getElementById('rules-list');
-const detectedList = document.getElementById('detected-list');
 
 async function getData() {
-  const { global = false, sites = {}, pages = {}, detected = {} } =
-    await chrome.storage.local.get(['global', 'sites', 'pages', 'detected']);
-  return { global, sites, pages, detected };
+  const { global = false, sites = {}, pages = {} } =
+    await chrome.storage.local.get(['global', 'sites', 'pages']);
+  return { global, sites, pages };
 }
 
 function escapeHtml(s) {
@@ -41,7 +40,7 @@ function simplifyUrl(url) {
 }
 
 function render(data) {
-  const { global, sites, pages, detected } = data;
+  const { global, sites, pages } = data;
 
   // Global
   globalToggle.checked = global;
@@ -77,14 +76,6 @@ function render(data) {
       </li>
     `).join('');
   }
-
-  // Detected
-  const hostnames = Object.keys(detected).sort();
-  if (hostnames.length === 0) {
-    detectedList.innerHTML = `<li class="empty">${escapeHtml(msg('noDetectedSites'))}</li>`;
-  } else {
-    detectedList.innerHTML = hostnames.map(h => `<li>${escapeHtml(h)}</li>`).join('');
-  }
 }
 
 // Events
@@ -104,8 +95,7 @@ rulesList.addEventListener('click', async (e) => {
     for (const key of Object.keys(data.pages)) {
       try { if (new URL(key).hostname === target) delete data.pages[key]; } catch {}
     }
-    delete data.detected[target];
-    await chrome.storage.local.set({ sites: data.sites, pages: data.pages, detected: data.detected });
+    await chrome.storage.local.set({ sites: data.sites, pages: data.pages });
   } else {
     delete data.pages[target];
     await chrome.storage.local.set({ pages: data.pages });
