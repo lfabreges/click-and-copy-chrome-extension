@@ -66,9 +66,6 @@
     "message": "Disable for this page"
   },
   "menuResetSite": {
-    "message": "Reset this site"
-  },
-  "menuOptions": {
-    "message": "Options…"
+    "message": "Reset site rules"
   }
 }

@@ -232,9 +232,7 @@ function createMenus() {
       chrome.contextMenus.create({ id: 'toggle-site', title: msg('menuEnableForSite'), contexts: ['action'] });
       chrome.contextMenus.create({ id: 'toggle-page', title: msg('menuEnableForPage'), contexts: ['action'] });
       chrome.contextMenus.create({ id: 'sep2', type: 'separator', contexts: ['action'] });
-      chrome.contextMenus.create({ id: 'reset-site', title: msg('menuResetSite'), contexts: ['action'] });
-      chrome.contextMenus.create({ id: 'sep3', type: 'separator', contexts: ['action'] });
-      chrome.contextMenus.create({ id: 'open-options', title: msg('menuOptions'), contexts: ['action'] }, resolve);
+      chrome.contextMenus.create({ id: 'reset-site', title: msg('menuResetSite'), contexts: ['action'] }, resolve);
     });
   });
 }
@@ -312,11 +310,6 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 // Context menu clicks
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === 'open-options') {
-    chrome.runtime.openOptionsPage();
-    return;
-  }
-
   const storageData = await getData();
 
   if (info.menuItemId === 'toggle-global') {
