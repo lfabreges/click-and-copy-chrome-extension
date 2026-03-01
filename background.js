@@ -405,15 +405,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
 
-    tabCache.set(tab.id, { url, incognito: !!tab.incognito });
+    const isMainFrame = sender.frameId === 0;
+    if (isMainFrame) {
+      tabCache.set(tab.id, { url, incognito: !!tab.incognito });
+    }
 
     getData().then(storageData => {
       const data = getTabData(storageData, tab.incognito);
       const { hostname } = new URL(url);
       const enabled = resolveState(data.global, data.sites, data.pages, hostname, url);
 
-      applyBadge(tab.id, url, data);
-      if (tab.active) refreshMenus(storageData, { ...tab, url });
+      if (isMainFrame) {
+        applyBadge(tab.id, url, data);
+        if (tab.active) refreshMenus(storageData, { ...tab, url });
+      }
 
       sendResponse({ enabled });
     }).catch(() => sendResponse({ enabled: false }));
