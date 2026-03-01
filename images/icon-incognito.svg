@@ -1,16 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 6 116 116">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
   <defs>
     <clipPath id="mouseClip">
-      <rect x="32" y="14" width="64" height="100" rx="20" />
+      <rect x="23" y="0" width="82" height="128" rx="20" />
     </clipPath>
   </defs>
 
   <g clip-path="url(#mouseClip)">
-    <rect x="32" y="14" width="64" height="100" rx="20" fill="#1F1F1F" />
-    <rect x="64" y="14" width="32" height="50" fill="#10B981" />
-    <rect x="59" y="14" width="10" height="50" fill="#FFFFFF" />
-    <rect x="32" y="59" width="64" height="10" fill="#FFFFFF" />
+    <rect x="23" y="0"  width="36" height="59" fill="#FFFFFF" />
+    <rect x="69" y="0"  width="36" height="59" fill="#00c274" />
+    <rect x="23" y="69" width="82" height="59" fill="#FFFFFF" />
   </g>
-
-  <rect x="32" y="14" width="64" height="100" rx="20" fill="none" stroke="#FFFFFF" stroke-width="10" />
 </svg>
