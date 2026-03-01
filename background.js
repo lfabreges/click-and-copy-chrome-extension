@@ -41,6 +41,58 @@ function hasPagesForHost(pages, hostname) {
   });
 }
 
+// Toggle the most specific existing rule for this tab.
+// If a page rule exists → toggle page; otherwise → toggle site.
+// After toggling, remove the rule if it becomes redundant with its parent level.
+function smartToggle(data, hostname, clean) {
+  const hasPage = clean in data.pages;
+
+  if (hasPage) {
+    // Toggle page rule
+    const newPageVal = !data.pages[clean];
+    const parentVal = siteState(data, hostname);
+    if (newPageVal === parentVal) {
+      // Page rule would match site level → remove it (let site rule apply)
+      delete data.pages[clean];
+    } else {
+      data.pages[clean] = newPageVal;
+    }
+    return { sites: data.sites, pages: data.pages };
+  }
+
+  // Toggle site rule
+  const currentSite = siteState(data, hostname);
+  const newSiteVal = !currentSite;
+  if (newSiteVal === data.global) {
+    // Site rule would match global → remove it (let global apply)
+    delete data.sites[hostname];
+  } else {
+    data.sites[hostname] = newSiteVal;
+  }
+  return { sites: data.sites, pages: data.pages };
+}
+
+// Toggle at a specific level, then clean up if redundant with parent.
+function toggleSite(data, hostname) {
+  const newVal = !siteState(data, hostname);
+  if (newVal === data.global) {
+    delete data.sites[hostname];
+  } else {
+    data.sites[hostname] = newVal;
+  }
+}
+
+function togglePage(data, hostname, clean) {
+  const currentResolved = resolveState(data.global, data.sites, data.pages, hostname, clean);
+  const newVal = !currentResolved;
+  const parentVal = siteState(data, hostname);
+  if (newVal === parentVal) {
+    delete data.pages[clean];
+  } else {
+    data.pages[clean] = newVal;
+  }
+}
+
 function parseTab(tab) {
   if (!tab?.url || !tab.url.startsWith('http')) return null;
   const u = new URL(tab.url);
@@ -151,19 +203,14 @@ async function refreshAll(data) {
 
 createMenus();
 
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.remove('enabled'); // clean up old schema
-});
-
-// Icon click: toggle for the whole site (hostname)
+// Icon click: smart toggle (page if page rule exists, otherwise site)
 chrome.action.onClicked.addListener(async (tab) => {
   const parsed = parseTab(tab);
   if (!parsed) return;
 
   const data = await getData();
-  const current = siteState(data, parsed.hostname);
-  data.sites[parsed.hostname] = !current;
-  await chrome.storage.local.set({ sites: data.sites });
+  const toSave = smartToggle(data, parsed.hostname, parsed.clean);
+  await chrome.storage.local.set(toSave);
 });
 
 // Context menu clicks
@@ -182,15 +229,14 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const parsed = parseTab(tab);
   if (!parsed) return;
 
-  const { hostname, url: tabUrl, clean } = parsed;
+  const { hostname, clean } = parsed;
   const data = await getData();
 
   if (info.menuItemId === 'toggle-site') {
-    data.sites[hostname] = !siteState(data, hostname);
+    toggleSite(data, hostname);
     await chrome.storage.local.set({ sites: data.sites });
   } else if (info.menuItemId === 'toggle-page') {
-    const pageResolved = resolveState(data.global, data.sites, data.pages, hostname, tabUrl);
-    data.pages[clean] = !pageResolved;
+    togglePage(data, hostname, clean);
     await chrome.storage.local.set({ pages: data.pages });
   } else if (info.menuItemId === 'reset-site') {
     delete data.sites[hostname];
