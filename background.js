@@ -160,6 +160,20 @@ async function notifyAllIncognitoTabs(effData) {
   for (const tab of tabs) notifyTab(tab.id, tab.url, effData);
 }
 
+async function notifyIncognitoTabsForHost(effData, hostname, excludeTabId) {
+  const tabs = await chrome.tabs.query({ incognito: true });
+  for (const tab of tabs) {
+    if (tab.id === excludeTabId) continue;
+    if (!tab.url?.startsWith('http')) continue;
+    try {
+      if (new URL(tab.url).hostname === hostname) {
+        applyBadge(tab.id, tab.url, effData);
+        notifyTab(tab.id, tab.url, effData);
+      }
+    } catch {}
+  }
+}
+
 async function notifyAllNonIncognitoTabs(storageData) {
   const tabs = await chrome.tabs.query({ incognito: false });
   for (const tab of tabs) notifyTab(tab.id, tab.url, storageData);
@@ -281,6 +295,7 @@ chrome.action.onClicked.addListener(async (tab) => {
     const effData = getEffectiveData(storageData);
     applyBadge(parsed.tabId, parsed.url, effData);
     notifyTab(parsed.tabId, parsed.url, effData);
+    notifyIncognitoTabsForHost(effData, parsed.hostname, parsed.tabId);
     refreshMenus(storageData, tab);
     return;
   }
@@ -300,12 +315,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
   if (info.menuItemId === 'toggle-global') {
     if (tab?.incognito) {
-      const eff = getEffectiveData(storageData);
-      incognitoData.global = !eff.global;
-      const newEff = getEffectiveData(storageData);
+      incognitoData.global = !(incognitoData.global ?? storageData.global);
+      const effData = getEffectiveData(storageData);
       updateAllBadges(storageData);
       refreshMenus(storageData, tab);
-      notifyAllIncognitoTabs(newEff);
+      notifyAllIncognitoTabs(effData);
     } else {
       await chrome.storage.local.set({ global: !storageData.global });
     }
@@ -329,6 +343,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     const effData = getEffectiveData(storageData);
     applyBadge(parsed.tabId, parsed.url, effData);
     notifyTab(parsed.tabId, parsed.url, effData);
+    notifyIncognitoTabsForHost(effData, hostname, parsed.tabId);
     refreshMenus(storageData, tab);
     return;
   }
@@ -387,7 +402,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const { hostname } = new URL(tab.url);
       const enabled = resolveState(data.global, data.sites, data.pages, hostname, tab.url);
       sendResponse({ enabled });
-    });
+    }).catch(() => sendResponse({ enabled: false }));
     return true; // keep channel open for async response
   }
 });
