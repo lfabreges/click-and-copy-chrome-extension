@@ -1,6 +1,7 @@
 'use strict';
 
 const globalToggle = document.getElementById('global-toggle');
+const globalHint = document.getElementById('global-hint');
 const rulesList = document.getElementById('rules-list');
 const detectedList = document.getElementById('detected-list');
 
@@ -30,9 +31,11 @@ function simplifyUrl(url) {
 function render(data) {
   const { global, sites, pages, detected } = data;
 
+  // Global
   globalToggle.checked = global;
+  globalHint.textContent = global ? 'Actif sur tous les sites' : 'Désactivé par défaut';
 
-  // Build rules list
+  // Rules
   const rules = [];
   for (const [hostname, enabled] of Object.entries(sites)) {
     rules.push({ type: 'site', target: hostname, enabled });
@@ -47,26 +50,26 @@ function render(data) {
   });
 
   if (rules.length === 0) {
-    rulesList.innerHTML = '<li class="empty">Aucune règle configurée</li>';
+    rulesList.innerHTML = '<li class="empty">Aucune exception configurée</li>';
   } else {
     rulesList.innerHTML = rules.map(r => `
       <li>
         <span class="rule-target">
-          <span class="type type-${r.type}">${r.type === 'site' ? 'Site' : 'Page'}</span>
-          ${escapeHtml(r.type === 'page' ? simplifyUrl(r.target) : r.target)}
+          <span class="badge badge--${r.type}">${r.type === 'site' ? 'Site' : 'Page'}</span>
+          <span class="rule-name">${escapeHtml(r.type === 'page' ? simplifyUrl(r.target) : r.target)}</span>
         </span>
         <span class="rule-actions">
-          <span class="${r.enabled ? 'state-on' : 'state-off'}">${r.enabled ? 'ON' : 'OFF'}</span>
-          <button class="remove" data-type="${r.type}" data-target="${escapeAttr(r.target)}" title="Supprimer cette règle">&times;</button>
+          <span class="state state--${r.enabled ? 'on' : 'off'}">${r.enabled ? 'ON' : 'OFF'}</span>
+          <button class="remove" data-type="${r.type}" data-target="${escapeAttr(r.target)}">&times;</button>
         </span>
       </li>
     `).join('');
   }
 
-  // Detected sites
+  // Detected
   const hostnames = Object.keys(detected).sort();
   if (hostnames.length === 0) {
-    detectedList.innerHTML = '<li class="empty">Aucun site détecté</li>';
+    detectedList.innerHTML = '<li class="empty">Aucun site détecté pour le moment</li>';
   } else {
     detectedList.innerHTML = hostnames.map(h => `<li>${escapeHtml(h)}</li>`).join('');
   }
@@ -97,10 +100,8 @@ rulesList.addEventListener('click', async (e) => {
   }
 });
 
-// Live update on storage changes
 chrome.storage.onChanged.addListener(() => {
   getData().then(render);
 });
 
-// Initial render
 getData().then(render);
