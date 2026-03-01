@@ -1,15 +1,15 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html>
 <head>
   <meta charset="UTF-8">
-  <title>Click & Copy – Options</title>
+  <title data-i18n="optionsTitle"></title>
   <link rel="stylesheet" href="options.css">
 </head>
 <body>
 
   <header>
     <h1>Click &amp; Copy</h1>
-    <p class="subtitle">Restaure le clic droit, la sélection de texte et le copier-coller.</p>
+    <p class="subtitle" data-i18n="subtitle"></p>
   </header>
 
   <main>
@@ -18,8 +18,8 @@
     <section class="card card--global">
       <div class="toggle-row">
         <div>
-          <span class="toggle-label">Activer pour tous les sites</span>
-          <span class="toggle-hint" id="global-hint">Désactivé par défaut</span>
+          <span class="toggle-label" data-i18n="enableForAllSites"></span>
+          <span class="toggle-hint" id="global-hint" data-i18n="disabledByDefault"></span>
         </div>
         <label class="switch">
           <input type="checkbox" id="global-toggle">
@@ -30,20 +30,20 @@
 
     <!-- Rules -->
     <section>
-      <h2>Exceptions</h2>
+      <h2 data-i18n="exceptions"></h2>
       <div class="card" id="rules-card">
         <ul class="rules-list" id="rules-list">
-          <li class="empty">Aucune exception configurée</li>
+          <li class="empty" data-i18n="noExceptions"></li>
         </ul>
       </div>
     </section>
 
     <!-- Detected -->
     <section>
-      <h2>Sites avec blocage détecté</h2>
+      <h2 data-i18n="detectedSites"></h2>
       <div class="card" id="detected-card">
         <ul class="detected-list" id="detected-list">
-          <li class="empty">Aucun site détecté pour le moment</li>
+          <li class="empty" data-i18n="noDetectedSites"></li>
         </ul>
       </div>
     </section>

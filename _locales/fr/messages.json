@@ -1,0 +1,83 @@
+{
+  "extName": {
+    "message": "Click & Copy"
+  },
+  "extDescription": {
+    "message": "Restaure le clic droit, la sélection de texte et le copier-coller sur tous les sites."
+  },
+  "optionsTitle": {
+    "message": "Click & Copy – Options"
+  },
+  "subtitle": {
+    "message": "Restaure le clic droit, la sélection de texte et le copier-coller."
+  },
+  "enableForAllSites": {
+    "message": "Activer pour tous les sites"
+  },
+  "disabledByDefault": {
+    "message": "Désactivé par défaut"
+  },
+  "activeOnAllSites": {
+    "message": "Actif sur tous les sites"
+  },
+  "exceptions": {
+    "message": "Exceptions"
+  },
+  "noExceptions": {
+    "message": "Aucune exception configurée"
+  },
+  "detectedSites": {
+    "message": "Sites avec blocage détecté"
+  },
+  "noDetectedSites": {
+    "message": "Aucun site détecté pour le moment"
+  },
+  "badgeSite": {
+    "message": "Site"
+  },
+  "badgePage": {
+    "message": "Page"
+  },
+  "menuEnableAllSites": {
+    "message": "Activer pour tous les sites"
+  },
+  "menuDisableAllSites": {
+    "message": "Désactiver pour tous les sites"
+  },
+  "menuEnableForSite": {
+    "message": "Activer pour ce site"
+  },
+  "menuDisableForSite": {
+    "message": "Désactiver pour ce site"
+  },
+  "menuEnableForHost": {
+    "message": "Activer pour $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1",
+        "example": "example.com"
+      }
+    }
+  },
+  "menuDisableForHost": {
+    "message": "Désactiver pour $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1",
+        "example": "example.com"
+      }
+    }
+  },
+  "menuEnableForPage": {
+    "message": "Activer pour cette page"
+  },
+  "menuDisableForPage": {
+    "message": "Désactiver pour cette page"
+  },
+  "menuResetSite": {
+    "message": "Réinitialiser ce site"
+  },
+  "menuOptions": {
+    "message": "Options…"
+  }
+}

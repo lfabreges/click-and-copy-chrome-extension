@@ -1,0 +1,83 @@
+{
+  "extName": {
+    "message": "Click & Copy"
+  },
+  "extDescription": {
+    "message": "Restores right-click, text selection, and copy/paste on all websites."
+  },
+  "optionsTitle": {
+    "message": "Click & Copy – Options"
+  },
+  "subtitle": {
+    "message": "Restores right-click, text selection, and copy/paste."
+  },
+  "enableForAllSites": {
+    "message": "Enable for all sites"
+  },
+  "disabledByDefault": {
+    "message": "Disabled by default"
+  },
+  "activeOnAllSites": {
+    "message": "Active on all sites"
+  },
+  "exceptions": {
+    "message": "Exceptions"
+  },
+  "noExceptions": {
+    "message": "No exceptions configured"
+  },
+  "detectedSites": {
+    "message": "Sites with detected blocking"
+  },
+  "noDetectedSites": {
+    "message": "No sites detected yet"
+  },
+  "badgeSite": {
+    "message": "Site"
+  },
+  "badgePage": {
+    "message": "Page"
+  },
+  "menuEnableAllSites": {
+    "message": "Enable for all sites"
+  },
+  "menuDisableAllSites": {
+    "message": "Disable for all sites"
+  },
+  "menuEnableForSite": {
+    "message": "Enable for this site"
+  },
+  "menuDisableForSite": {
+    "message": "Disable for this site"
+  },
+  "menuEnableForHost": {
+    "message": "Enable for $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1",
+        "example": "example.com"
+      }
+    }
+  },
+  "menuDisableForHost": {
+    "message": "Disable for $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1",
+        "example": "example.com"
+      }
+    }
+  },
+  "menuEnableForPage": {
+    "message": "Enable for this page"
+  },
+  "menuDisableForPage": {
+    "message": "Disable for this page"
+  },
+  "menuResetSite": {
+    "message": "Reset this site"
+  },
+  "menuOptions": {
+    "message": "Options…"
+  }
+}

@@ -134,20 +134,22 @@ async function updateAllBadges(data) {
 
 // ── Context menus ────────────────────────────────────────────────────────────
 
+const msg = chrome.i18n.getMessage;
+
 // Promise that resolves once menus are created. refreshMenus() awaits it.
 let menusReady;
 
 function createMenus() {
   menusReady = new Promise(resolve => {
     chrome.contextMenus.removeAll(() => {
-      chrome.contextMenus.create({ id: 'toggle-global', title: 'Activer pour tous les sites', contexts: ['action'] });
+      chrome.contextMenus.create({ id: 'toggle-global', title: msg('menuEnableAllSites'), contexts: ['action'] });
       chrome.contextMenus.create({ id: 'sep1', type: 'separator', contexts: ['action'] });
-      chrome.contextMenus.create({ id: 'toggle-site', title: 'Activer pour ce site', contexts: ['action'] });
-      chrome.contextMenus.create({ id: 'toggle-page', title: 'Activer pour cette page', contexts: ['action'] });
+      chrome.contextMenus.create({ id: 'toggle-site', title: msg('menuEnableForSite'), contexts: ['action'] });
+      chrome.contextMenus.create({ id: 'toggle-page', title: msg('menuEnableForPage'), contexts: ['action'] });
       chrome.contextMenus.create({ id: 'sep2', type: 'separator', contexts: ['action'] });
-      chrome.contextMenus.create({ id: 'reset-site', title: 'Réinitialiser ce site', contexts: ['action'] });
+      chrome.contextMenus.create({ id: 'reset-site', title: msg('menuResetSite'), contexts: ['action'] });
       chrome.contextMenus.create({ id: 'sep3', type: 'separator', contexts: ['action'] });
-      chrome.contextMenus.create({ id: 'open-options', title: 'Options…', contexts: ['action'] }, resolve);
+      chrome.contextMenus.create({ id: 'open-options', title: msg('menuOptions'), contexts: ['action'] }, resolve);
     });
   });
 }
@@ -157,7 +159,7 @@ async function refreshMenus(data, activeTab) {
   if (!data) data = await getData();
 
   chrome.contextMenus.update('toggle-global', {
-    title: data.global ? 'Désactiver pour tous les sites' : 'Activer pour tous les sites',
+    title: data.global ? msg('menuDisableAllSites') : msg('menuEnableAllSites'),
   });
 
   if (!activeTab) {
@@ -166,9 +168,9 @@ async function refreshMenus(data, activeTab) {
   const parsed = activeTab ? parseTab(activeTab) : null;
 
   if (!parsed) {
-    chrome.contextMenus.update('toggle-site', { title: 'Activer pour ce site', enabled: false });
-    chrome.contextMenus.update('toggle-page', { title: 'Activer pour cette page', enabled: false });
-    chrome.contextMenus.update('reset-site', { title: 'Réinitialiser ce site', enabled: false });
+    chrome.contextMenus.update('toggle-site', { title: msg('menuEnableForSite'), enabled: false });
+    chrome.contextMenus.update('toggle-page', { title: msg('menuEnableForPage'), enabled: false });
+    chrome.contextMenus.update('reset-site', { title: msg('menuResetSite'), enabled: false });
     return;
   }
 
@@ -177,18 +179,18 @@ async function refreshMenus(data, activeTab) {
   const pageResolved = resolveState(data.global, data.sites, data.pages, hostname, url);
 
   chrome.contextMenus.update('toggle-site', {
-    title: currentSite ? `Désactiver pour ${hostname}` : `Activer pour ${hostname}`,
+    title: currentSite ? msg('menuDisableForHost', [hostname]) : msg('menuEnableForHost', [hostname]),
     enabled: true,
   });
 
   chrome.contextMenus.update('toggle-page', {
-    title: pageResolved ? 'Désactiver pour cette page' : 'Activer pour cette page',
+    title: pageResolved ? msg('menuDisableForPage') : msg('menuEnableForPage'),
     enabled: true,
   });
 
   const hasRules = (hostname in data.sites) || hasPagesForHost(data.pages, hostname);
   chrome.contextMenus.update('reset-site', {
-    title: 'Réinitialiser ce site',
+    title: msg('menuResetSite'),
     enabled: hasRules,
   });
 }

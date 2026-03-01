@@ -1,5 +1,17 @@
 'use strict';
 
+const msg = chrome.i18n.getMessage;
+
+// Apply i18n to all elements with data-i18n attribute
+document.querySelectorAll('[data-i18n]').forEach(el => {
+  const key = el.getAttribute('data-i18n');
+  const text = msg(key);
+  if (text) el.textContent = text;
+});
+
+// Set page title
+document.title = msg('optionsTitle');
+
 const globalToggle = document.getElementById('global-toggle');
 const globalHint = document.getElementById('global-hint');
 const rulesList = document.getElementById('rules-list');
@@ -33,7 +45,7 @@ function render(data) {
 
   // Global
   globalToggle.checked = global;
-  globalHint.textContent = global ? 'Actif sur tous les sites' : 'Désactivé par défaut';
+  globalHint.textContent = global ? msg('activeOnAllSites') : msg('disabledByDefault');
 
   // Rules
   const rules = [];
@@ -50,12 +62,12 @@ function render(data) {
   });
 
   if (rules.length === 0) {
-    rulesList.innerHTML = '<li class="empty">Aucune exception configurée</li>';
+    rulesList.innerHTML = `<li class="empty">${escapeHtml(msg('noExceptions'))}</li>`;
   } else {
     rulesList.innerHTML = rules.map(r => `
       <li>
         <span class="rule-target">
-          <span class="badge badge--${r.type}">${r.type === 'site' ? 'Site' : 'Page'}</span>
+          <span class="badge badge--${r.type}">${r.type === 'site' ? msg('badgeSite') : msg('badgePage')}</span>
           <span class="rule-name">${escapeHtml(r.type === 'page' ? simplifyUrl(r.target) : r.target)}</span>
         </span>
         <span class="rule-actions">
@@ -69,7 +81,7 @@ function render(data) {
   // Detected
   const hostnames = Object.keys(detected).sort();
   if (hostnames.length === 0) {
-    detectedList.innerHTML = '<li class="empty">Aucun site détecté pour le moment</li>';
+    detectedList.innerHTML = `<li class="empty">${escapeHtml(msg('noDetectedSites'))}</li>`;
   } else {
     detectedList.innerHTML = hostnames.map(h => `<li>${escapeHtml(h)}</li>`).join('');
   }
