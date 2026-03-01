@@ -6,8 +6,8 @@
   </defs>
 
   <g clip-path="url(#mouseClip)">
-    <rect x="23" y="0"  width="36" height="59" fill="#1F1F1F" />
-    <rect x="69" y="0"  width="36" height="59" fill="#00c274" />
-    <rect x="23" y="69" width="82" height="59" fill="#1F1F1F" />
+    <rect x="23" y="0"  width="36" height="59" fill="#959595" />
+    <rect x="69" y="0"  width="36" height="59" fill="#00C853" />
+    <rect x="23" y="69" width="82" height="59" fill="#959595" />
   </g>
 </svg>
