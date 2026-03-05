@@ -10,19 +10,40 @@
  * Each level is independent – toggling a higher level never clears lower overrides.
  * "Reset site" is the explicit action to clear all overrides for a hostname.
  *
- * Incognito: rules apply in-session but are NEVER written to storage.
- *   incognitoData holds in-memory overrides for all incognito tabs.
- *   It is lost when the service worker restarts (browser exit, extension reload).
+ * Incognito: rules apply in-session but are NEVER written to local storage.
+ *   incognitoData holds overrides for all incognito tabs, backed by
+ *   chrome.storage.session so they survive SW restarts within the same browser
+ *   session. They are cleared when the browser closes or the extension reloads.
  *
  * Permission model: uses activeTab instead of tabs.  State is resolved
  *   on-demand when the content script sends its URL via get-state.
  *   Other tabs update lazily when activated.
  */
 
-// ── In-memory state (never persisted) ────────────────────────────────────────
+// ── In-memory state (session-backed) ─────────────────────────────────────────
 
 const incognitoData = { global: null, sites: {}, pages: {} };
 // global: null means "inherit from storage"
+
+// Restore incognito overrides from session storage when the service worker
+// restarts (MV3 terminates it after ~30s of inactivity). chrome.storage.session
+// survives SW restarts but is cleared when the browser closes.
+const incognitoReady = chrome.storage.session.get('incognito').then(({ incognito }) => {
+  if (!incognito) return;
+  if (incognito.global !== undefined) incognitoData.global = incognito.global;
+  if (incognito.sites !== undefined) incognitoData.sites = incognito.sites;
+  if (incognito.pages !== undefined) incognitoData.pages = incognito.pages;
+});
+
+function saveIncognito() {
+  chrome.storage.session.set({
+    incognito: {
+      global: incognitoData.global,
+      sites:  { ...incognitoData.sites },
+      pages:  { ...incognitoData.pages },
+    },
+  });
+}
 
 // Tab cache: tabId → { url, incognito } – populated by get-state and user interactions.
 // Used to update badges on all known tabs without the tabs permission,
@@ -187,6 +208,7 @@ async function applyIncognitoChange(storageData, tab, tabId, url) {
   const effData = getEffectiveData(storageData);
   updateAllBadges(storageData, effData);
   if (url) sendState(tabId, url, effData);
+  saveIncognito();
   await refreshMenus(storageData, tab);
 }
 
@@ -297,7 +319,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   if (!parsed) return;
 
   tabCache.set(tab.id, { url: tab.url, incognito: !!tab.incognito });
-  const storageData = await getData();
+  const [storageData] = await Promise.all([getData(), incognitoReady]);
 
   if (tab.incognito) {
     smartToggleIncognito(storageData, parsed.hostname, parsed.clean);
@@ -312,7 +334,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 // Context menu clicks
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  const storageData = await getData();
+  const [storageData] = await Promise.all([getData(), incognitoReady]);
 
   if (info.menuItemId === 'toggle-global') {
     if (tab?.incognito) {
@@ -388,6 +410,7 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
     const [storageData, [activeTab]] = await Promise.all([
       getData(),
       chrome.tabs.query({ active: true, currentWindow: true }),
+      incognitoReady,
     ]);
     updateAllBadges(storageData);
     refreshMenus(storageData);
@@ -410,7 +433,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       tabCache.set(tab.id, { url, incognito: !!tab.incognito });
     }
 
-    getData().then(storageData => {
+    Promise.all([getData(), incognitoReady]).then(([storageData]) => {
       const data = getTabData(storageData, tab.incognito);
       const { hostname } = new URL(url);
       const enabled = resolveState(data.global, data.sites, data.pages, hostname, url);
