@@ -234,23 +234,24 @@ function applyBadge(tabId, url, data) {
 
 const msg = chrome.i18n.getMessage;
 
-let menusReady = Promise.resolve();
+let menusReady;
 
 function createMenus() {
   menusReady = new Promise(resolve => {
     chrome.contextMenus.removeAll(() => {
-      chrome.contextMenus.create({ id: 'toggle-global', title: msg('menuEnableAllSites'), contexts: ['action'] });
-      chrome.contextMenus.create({ id: 'sep1', type: 'separator', contexts: ['action'] });
-      chrome.contextMenus.create({ id: 'toggle-site', title: msg('menuEnableForSite'), contexts: ['action'] });
-      chrome.contextMenus.create({ id: 'toggle-page', title: msg('menuEnableForPage'), contexts: ['action'] });
-      chrome.contextMenus.create({ id: 'sep2', type: 'separator', contexts: ['action'] });
-      chrome.contextMenus.create({ id: 'reset-site', title: msg('menuResetSite'), contexts: ['action'] }, resolve);
+      const sup = () => void chrome.runtime.lastError;
+      chrome.contextMenus.create({ id: 'toggle-global', title: msg('menuEnableAllSites'), contexts: ['action'] }, sup);
+      chrome.contextMenus.create({ id: 'sep1', type: 'separator', contexts: ['action'] }, sup);
+      chrome.contextMenus.create({ id: 'toggle-site', title: msg('menuEnableForSite'), contexts: ['action'] }, sup);
+      chrome.contextMenus.create({ id: 'toggle-page', title: msg('menuEnableForPage'), contexts: ['action'] }, sup);
+      chrome.contextMenus.create({ id: 'sep2', type: 'separator', contexts: ['action'] }, sup);
+      chrome.contextMenus.create({ id: 'reset-site', title: msg('menuResetSite'), contexts: ['action'] }, () => { sup(); resolve(); });
     });
   });
 }
 
 async function refreshMenus(storageData, activeTab) {
-  await menusReady;
+  if (menusReady) await menusReady;
   if (!storageData) storageData = await getData();
 
   let parsed = null;
@@ -311,13 +312,7 @@ async function refreshMenus(storageData, activeTab) {
 
 // ── Initialisation ───────────────────────────────────────────────────────────
 
-// Context menus persist across SW restarts in MV3.
-// Create them only on install/update to avoid duplicate-id errors.
-chrome.runtime.onInstalled.addListener(async () => {
-  createMenus();
-  await menusReady;
-  refreshMenus();
-});
+createMenus();
 
 // Icon click: smart toggle (page if page rule exists, otherwise site)
 chrome.action.onClicked.addListener(async (tab) => {
