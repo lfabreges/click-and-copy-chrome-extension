@@ -234,7 +234,7 @@ function applyBadge(tabId, url, data) {
 
 const msg = chrome.i18n.getMessage;
 
-let menusReady;
+let menusReady = Promise.resolve();
 
 function createMenus() {
   menusReady = new Promise(resolve => {
@@ -250,7 +250,7 @@ function createMenus() {
 }
 
 async function refreshMenus(storageData, activeTab) {
-  if (menusReady) await menusReady;
+  await menusReady;
   if (!storageData) storageData = await getData();
 
   let parsed = null;
@@ -311,7 +311,13 @@ async function refreshMenus(storageData, activeTab) {
 
 // ── Initialisation ───────────────────────────────────────────────────────────
 
-createMenus();
+// Context menus persist across SW restarts in MV3.
+// Create them only on install/update to avoid duplicate-id errors.
+chrome.runtime.onInstalled.addListener(async () => {
+  createMenus();
+  await menusReady;
+  refreshMenus();
+});
 
 // Icon click: smart toggle (page if page rule exists, otherwise site)
 chrome.action.onClicked.addListener(async (tab) => {
